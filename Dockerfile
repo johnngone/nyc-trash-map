@@ -20,17 +20,21 @@ ARG APP_VERSION
 LABEL org.opencontainers.image.source="https://github.com/johnngone/nyc-trash-map"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.version=$APP_VERSION
-COPY pyproject.toml requirements.txt build-constraints.txt README.md LICENSE THIRD_PARTY_NOTICES.md ./
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 COPY backend/app ./backend/app
-COPY scripts ./scripts
+# Explicit runtime allowlist: tests, fixture builders, and research tools stay in CI.
+COPY scripts/activate_release.py scripts/archive_security.py scripts/build_pilot.py \
+    scripts/build_tiles.py scripts/container_entrypoint.sh scripts/load_processed.py \
+    scripts/promote_staging.py scripts/recovery_shadow.py scripts/release_validation.py \
+    scripts/run_refresh.py scripts/run_scheduler.py ./scripts/
 COPY --from=frontend-build /app/frontend/dist ./frontend-dist
 # Installation tools and their vendored libraries are removed after installation.
-RUN apt-get update \
+RUN --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade pip==26.2.2 setuptools==84.1.0 wheel==0.46.3 \
-    && python -m pip install --no-cache-dir --require-hashes -r requirements.txt \
-    && python -m pip install --no-cache-dir --no-deps --build-constraint build-constraints.txt . \
+    && python -m pip install --no-cache-dir --no-compile --require-hashes -r /tmp/requirements.txt \
     && python -m pip uninstall -y pip setuptools wheel \
     && rm -rf /usr/local/lib/python3.11/ensurepip \
     && chmod +x /app/scripts/container_entrypoint.sh \

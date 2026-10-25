@@ -200,6 +200,14 @@ The security workflow audits dependencies and scans both published image
 architectures weekly. Debian findings without a vendor fix remain visible but
 do not fail the fixed-vulnerability gate.
 
+The runtime image contains compiled frontend assets, backend source, and an
+explicit allowlist of refresh/recovery scripts. Test fixtures, research probes,
+build metadata, installer tools, and Python source caches are excluded. The app
+runs from `/app/backend` without a second installed copy. Container smoke tests
+check packaging before mounting their fixture generator read-only; test tooling
+does not need to be shipped to production. Keep `LICENSE` and
+`THIRD_PARTY_NOTICES.md` in the image.
+
 ## Troubleshooting checklist
 
 | Symptom | Check |

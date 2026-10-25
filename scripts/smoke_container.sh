@@ -3,6 +3,9 @@ set -euo pipefail
 
 image="${1:?usage: smoke_container.sh IMAGE CONTAINER_NAME}"
 container="${2:?usage: smoke_container.sh IMAGE CONTAINER_NAME}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Inspect the image before attaching test-only code or data.
+docker run --rm -i --entrypoint python "${image}" < "${script_dir}/check_runtime_image.py"
 smoke_data="$(mktemp -d)"
 # This disposable fixture is shared with the host test runner.
 chmod 0777 "${smoke_data}"
@@ -56,6 +59,7 @@ docker rm -f "${container}" >/dev/null
 
 docker run --rm --entrypoint python \
   -v "${smoke_data}:/smoke-data" \
+  -v "${script_dir}/build_smoke_release.py:/app/scripts/build_smoke_release.py:ro" \
   "${image}" \
   scripts/build_smoke_release.py --data-dir /smoke-data >"${fixture_json}"
 docker run --rm --entrypoint python -v "${smoke_data}:/smoke-data:ro" "${image}" -c \

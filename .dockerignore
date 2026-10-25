@@ -14,3 +14,10 @@ output
 *.log
 __pycache__
 *.pyc
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+backend/tests
+backend/build
+build
+docs
