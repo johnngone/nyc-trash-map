@@ -24,12 +24,15 @@ COPY pyproject.toml requirements.txt build-constraints.txt README.md LICENSE THI
 COPY backend/app ./backend/app
 COPY scripts ./scripts
 COPY --from=frontend-build /app/frontend/dist ./frontend-dist
+# Installation tools and their vendored libraries are removed after installation.
 RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --upgrade pip==26.2.2 setuptools==84.1.0 wheel==0.46.3 \
     && python -m pip install --no-cache-dir --require-hashes -r requirements.txt \
     && python -m pip install --no-cache-dir --no-deps --build-constraint build-constraints.txt . \
+    && python -m pip uninstall -y pip setuptools wheel \
+    && rm -rf /usr/local/lib/python3.11/ensurepip \
     && chmod +x /app/scripts/container_entrypoint.sh \
     && groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --no-create-home --home-dir /app/data app \
