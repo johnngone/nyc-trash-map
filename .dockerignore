@@ -1,4 +1,7 @@
 .git
+.venv
+.env
+.env.*
 .github
 backend/.venv
 frontend/node_modules

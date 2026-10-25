@@ -4,6 +4,11 @@ set -euo pipefail
 image="${1:?usage: smoke_container.sh IMAGE CONTAINER_NAME}"
 container="${2:?usage: smoke_container.sh IMAGE CONTAINER_NAME}"
 smoke_data="$(mktemp -d)"
+# This disposable fixture is shared with the host test runner.
+chmod 0777 "${smoke_data}"
+# The runtime deliberately cannot repair root-owned bind mounts.
+docker run --rm --user 0:0 --entrypoint chown \
+  -v "${smoke_data}:/smoke-data" "${image}" 10001:10001 /smoke-data
 fixture_json="${RUNNER_TEMP:-${smoke_data}}/smoke-fixture.json"
 health_json="${RUNNER_TEMP:-${smoke_data}}/smoke-health.json"
 map_json="${RUNNER_TEMP:-${smoke_data}}/smoke-map-config.json"
@@ -18,6 +23,8 @@ trap cleanup EXIT
 
 start_app() {
   docker run -d --name "${container}" \
+    --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,size=268435456,mode=1777 --pids-limit 256 \
     -e APP_ENV=production \
     -e DATA_REFRESH_ENABLED=false \
     -p 18080:8000 \
@@ -35,6 +42,8 @@ for attempt in {1..30}; do
   sleep 1
 done
 test "${ready}" -eq 1
+test "$(docker exec "${container}" id -u)" = "10001"
+docker exec "${container}" python -c 'from pathlib import Path; p=Path("/app/data/.write-probe"); p.write_text("ok"); p.unlink()'
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/)" = "200"
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/api/live)" = "200"
 test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/api/health)" = "503"

@@ -154,6 +154,52 @@ During the first eight-stage refresh, `/api/live` and the frontend are available
 
 If verification fails, stop the new deployment, preserve its failed data directory for diagnosis, restore the untouched backup, and redeploy the previous pinned image. Keep the backup through at least one later successful refresh and a tested activation rollback between retained v4 releases.
 
+## Security upgrades
+
+Release v1.0.1 retains the current manifest/database/tile formats. Do not discard
+or rebuild an existing compatible dataset just to install this security update.
+Record the old image digest, compose/environment files, dataset version and
+health response before replacing the app. Keep the old image for rollback.
+
+The app now runs as UID/GID `10001:10001`. Stop the app before migrating ownership
+of its verified data mount (`sudo chown -R 10001:10001 data` from the deployment
+directory). The production compose file drops capabilities, disallows privilege
+escalation, and makes the root filesystem read-only. `/app/data` remains writable;
+`/tmp` is a 256 MiB temporary filesystem. Confirm the mounted path before changing
+ownership. Caddy certificate volumes are separate and must not be changed.
+
+For an existing dataset, set `DATA_REFRESH_ON_STARTUP=false` during the deployment
+check to avoid an unnecessary citywide refresh. The scheduler still performs its
+regular refreshes. Pin `APP_IMAGE` to the validated release digest. Require health
+and map-config success, unchanged dataset counts, a real gzip tile, and working
+browser controls before considering the deployment complete. Roll back by
+restoring the previous compose/environment files and image; the previous root
+runtime can read the migrated data directory.
+
+Health summaries are cached against the database path, modification time, size
+and expected digest, with one calculation per cache miss. Every request still
+checks the committed release and artifact integrity; `verified_at` is never
+cached. This preserves corruption detection and rollback behavior.
+
+Source ZIP transfers require HTTPS, including redirects, and identity HTTP
+encoding. Limits are 512 MiB compressed per download, 900 seconds per transfer,
+2 GiB extracted per archive, 1 GiB per member, 10,000 members and 300 seconds per
+extraction. Only stored and deflated regular files/directories are accepted;
+traversal, links, duplicate paths and encrypted entries fail closed. Actual
+streamed byte counts are checked as well as archive metadata. Failures leave the
+committed dataset untouched. These ceilings exceed the observed LION/PAD sizes;
+review them explicitly if official source formats grow beyond them.
+
+`requirements.txt` locks runtime dependencies and hashes for both image
+architectures. Regenerate with `uv pip compile pyproject.toml --extra refresh
+--universal --python-version 3.11 --generate-hashes --output-file requirements.txt`;
+use `--upgrade-package NAME` for deliberate updates. Build dependencies are
+constrained separately in `build-constraints.txt`. CI uses Node 24 and Python
+3.11.17, audits npm, and runs the existing tests and non-root container smoke test.
+The security workflow audits dependencies and scans both published image
+architectures weekly. Debian findings without a vendor fix remain visible but
+do not fail the fixed-vulnerability gate.
+
 ## Troubleshooting checklist
 
 | Symptom | Check |

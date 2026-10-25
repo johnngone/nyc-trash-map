@@ -12,6 +12,7 @@ The production example matches the public deployment: one application container,
 
 ```bash
 cp .env.production.example .env
+sudo install -d -o 10001 -g 10001 data
 docker compose --env-file .env -f compose.production.yaml up -d
 ```
 
@@ -20,6 +21,12 @@ The example always pulls `ghcr.io/johnngone/nyc-trash-map:latest`. Set `APP_IMAG
 The first refresh downloads the source data and builds the map release. The basemap loads before that work is done. Street schedules appear after the release passes validation.
 
 The application accepts only its current persisted-data contract. Start a new installation with an empty data directory; incompatible manifests and artifacts are deliberately rejected.
+
+Starting with v1.0.1 the application runs as UID/GID `10001:10001`. For an
+existing compatible deployment, stop the app and transfer ownership of its
+data directory with `sudo chown -R 10001:10001 data` before upgrading. Preserve
+the dataset; this security release does not change its format. See the
+[security upgrade procedure](docs/operations.md#security-upgrades).
 
 Release images are published for both `linux/amd64` and `linux/arm64`. Docker automatically pulls the matching image for the host. Published images use the form `ghcr.io/johnngone/nyc-trash-map:<release-tag>`.
 
@@ -33,6 +40,7 @@ DATA_DIR=/opt/nyc-trash-map/data
 IMAGE=ghcr.io/johnngone/nyc-trash-map:latest
 
 mkdir -p "$DATA_DIR"
+sudo chown 10001:10001 "$DATA_DIR"
 docker pull "$IMAGE"
 docker run -d \
   --name nyc-trash-map \
@@ -164,7 +172,9 @@ Development keeps the complete HTTP request-access log. Production suppresses su
 Install the backend dependencies and start FastAPI from the repository root.
 
 ```bash
-python -m pip install -e ".[refresh]"
+python -m pip install --upgrade pip==26.2.2 setuptools==84.1.0 wheel==0.46.3
+python -m pip install --require-hashes -r requirements.txt
+python -m pip install --no-deps --build-constraint build-constraints.txt -e .
 python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 

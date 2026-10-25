@@ -1,5 +1,7 @@
 import logging
 import sqlite3
+import threading
+from functools import lru_cache
 from contextlib import closing
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -211,6 +213,41 @@ def vector_tile(version: str, z: int, x: int, y: int, request: Request) -> Respo
     )
 
 
+_health_summary_lock = threading.Lock()
+
+
+@lru_cache(maxsize=4)
+def _cached_health_summary(
+    database_path: str, mtime_ns: int, size: int, expected_sha256: str,
+) -> tuple[dict[str, dict[str, int]], int, dict[str, int]]:
+    # Immutable release identity invalidates the cache on replacement or rollback.
+    del mtime_ns, size, expected_sha256
+    with closing(_read_only_database(database_path)) as connection:
+        connection.execute("SELECT 1 FROM block_faces LIMIT 1").fetchone()
+        database_revision = connection.execute(
+            "SELECT value FROM dataset_metadata WHERE key = 'database_schema_revision'"
+        ).fetchone()
+        if database_revision is None or database_revision[0] != str(DATABASE_SCHEMA_REVISION):
+            raise HTTPException(status_code=503, detail="Database schema revision is invalid")
+        schedule_state_counts: dict[str, dict[str, int]] = {}
+        for collection_type, state, state_count in connection.execute(
+            """SELECT collection_type, state, COUNT(*)
+               FROM block_face_collection_states
+               GROUP BY collection_type, state"""
+        ):
+            schedule_state_counts.setdefault(str(collection_type), {})[str(state)] = int(state_count)
+        policy_conflicts = int(connection.execute(
+            "SELECT COUNT(*) FROM block_face_collection_states WHERE source_policy_conflict = 1"
+        ).fetchone()[0])
+        unresolved_counts = {
+            str(reason): int(reason_count)
+            for reason, reason_count in connection.execute(
+                "SELECT reason_code, COUNT(*) FROM unknown_block_faces GROUP BY reason_code"
+            )
+        }
+    return schedule_state_counts, policy_conflicts, unresolved_counts
+
+
 @router.get("/health")
 def health() -> dict[str, object]:
     from .config import APP_ENV
@@ -238,35 +275,19 @@ def health() -> dict[str, object]:
         or tile_metadata.tile_schema_revision != expected_tile_revision
     ):
         raise HTTPException(status_code=503, detail="Committed tileset release binding is invalid")
+    count = metadata.get("block_faces")
+    schedule_counts = metadata.get("schedule_counts")
+    if type(count) is not int or not isinstance(schedule_counts, dict):
+        raise HTTPException(status_code=503, detail="Committed release summary is invalid")
     try:
-        with closing(_read_only_database(database_path)) as connection:
-            connection.execute("SELECT 1 FROM block_faces LIMIT 1").fetchone()
-            database_revision = connection.execute(
-                "SELECT value FROM dataset_metadata WHERE key = 'database_schema_revision'"
-            ).fetchone()
-            if database_revision is None or database_revision[0] != str(DATABASE_SCHEMA_REVISION):
-                raise HTTPException(status_code=503, detail="Database schema revision is invalid")
-            count = metadata.get("block_faces")
-            schedule_counts = metadata.get("schedule_counts")
-            if type(count) is not int or not isinstance(schedule_counts, dict):
-                raise HTTPException(status_code=503, detail="Committed release summary is invalid")
-            schedule_state_counts: dict[str, dict[str, int]] = {}
-            for collection_type, state, state_count in connection.execute(
-                """SELECT collection_type, state, COUNT(*)
-                   FROM block_face_collection_states
-                   GROUP BY collection_type, state"""
-            ):
-                schedule_state_counts.setdefault(str(collection_type), {})[str(state)] = int(state_count)
-            policy_conflicts = int(connection.execute(
-                "SELECT COUNT(*) FROM block_face_collection_states WHERE source_policy_conflict = 1"
-            ).fetchone()[0])
-            unresolved_counts = {
-                str(reason): int(reason_count)
-                for reason, reason_count in connection.execute(
-                    "SELECT reason_code, COUNT(*) FROM unknown_block_faces GROUP BY reason_code"
-                )
-            }
-    except sqlite3.Error:
+        database = Path(database_path).resolve()
+        identity = database.stat()
+        # Serialize cache misses so concurrent probes cannot repeat full-table scans.
+        with _health_summary_lock:
+            schedule_state_counts, policy_conflicts, unresolved_counts = _cached_health_summary(
+                str(database), identity.st_mtime_ns, identity.st_size, release.database_sha256,
+            )
+    except (OSError, sqlite3.Error):
         LOGGER.exception("Health check could not inspect the local database")
         raise HTTPException(status_code=503, detail="Committed database is invalid") from None
     quality = metadata.get("ingestion_audit")

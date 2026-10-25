@@ -1,4 +1,5 @@
-import maplibregl, {
+import * as maplibregl from "maplibre-gl";
+import {
   type ControlPosition,
   type IControl,
   type Map as MapLibreMap,

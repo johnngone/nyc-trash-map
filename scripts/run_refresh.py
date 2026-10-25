@@ -21,6 +21,9 @@ from time import monotonic
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.archive_security import (
+    MAX_DOWNLOAD_BYTES, MAX_DOWNLOAD_SECONDS, extract_source_zip, validate_zip,
+)
 from scripts.load_processed import load_prepared_payload
 from scripts.release_validation import (
     EXPECTED_TILE_SCHEMA_REVISION,
@@ -58,7 +61,7 @@ ADDRESSPOINT_METADATA_URL = "https://data.cityofnewyork.us/api/views/6xyb-j5pk"
 LION_METADATA_URL = "https://data.cityofnewyork.us/api/views/2v4z-66xt"
 PAD_METADATA_URL = "https://data.cityofnewyork.us/api/views/bc8t-ecyu"
 CSCL_METADATA_URL = "https://services.arcgis.com/uKN48PkxmWiqJM9q/ArcGIS/rest/services/cscl/FeatureServer/1"
-USER_AGENT = "nyc-trash-map/3.0"
+USER_AGENT = "nyc-trash-map/1.0.1"
 DOWNLOAD_PROGRESS_BYTES = 16 * 1024 * 1024
 DOWNLOAD_PROGRESS_SECONDS = 30.0
 REFRESH_FINGERPRINT_VERSION = 1
@@ -71,6 +74,7 @@ PROCESSING_CODE_PATHS = (
     "scripts/recovery_shadow.py",
     "scripts/release_validation.py",
     "scripts/run_refresh.py",
+    "scripts/archive_security.py",
 )
 PROCESSING_DISTRIBUTIONS = (
     "geopandas",
@@ -525,24 +529,47 @@ def download_dsny(output: Path, client: httpx.Client | None = None) -> dict[str,
     }
 
 
-def download_file(url: str, output: Path) -> dict[str, object]:
-    with httpx.stream("GET", url, timeout=180, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as response:
+def _require_https(request: httpx.Request) -> None:
+    if request.url.scheme != "https":
+        raise RuntimeError("Source downloads and redirects must use HTTPS")
+
+
+def download_file(
+    url: str, output: Path, *, max_bytes: int = MAX_DOWNLOAD_BYTES,
+    max_seconds: float = MAX_DOWNLOAD_SECONDS,
+    transport: httpx.BaseTransport | None = None,
+) -> dict[str, object]:
+    started = monotonic()
+    with httpx.Client(
+        timeout=min(180, max_seconds), follow_redirects=True, transport=transport,
+        headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
+        event_hooks={"request": [_require_https]},
+    ) as client, client.stream("GET", url) as response:
         response.raise_for_status()
+        if monotonic() - started > max_seconds:
+            raise RuntimeError("Archive download exceeded time limit")
+        if response.headers.get("content-encoding", "identity").lower() != "identity":
+            raise RuntimeError("Archive transfer must not use HTTP content encoding")
         advertised_size = response.headers.get("content-length")
         expected_size = int(advertised_size) if advertised_size is not None else None
+        if expected_size is not None and (expected_size < 0 or expected_size > max_bytes):
+            raise RuntimeError("Archive download exceeds size limit")
         LOGGER.info(
             "Downloading archive destination=%s expected_bytes=%s",
             output.name,
             _format_bytes(expected_size) if expected_size is not None else "unknown",
         )
         downloaded = 0
-        started = monotonic()
         last_progress_at = started
         last_progress_bytes = 0
         with output.open("wb") as handle:
-            for chunk in response.iter_bytes(chunk_size=1024 * 1024):
-                handle.write(chunk)
+            for chunk in response.iter_raw(chunk_size=1024 * 1024):
                 downloaded += len(chunk)
+                if downloaded > max_bytes:
+                    raise RuntimeError("Archive download exceeds size limit")
+                if monotonic() - started > max_seconds:
+                    raise RuntimeError("Archive download exceeded time limit")
+                handle.write(chunk)
                 now = monotonic()
                 if (
                     downloaded - last_progress_bytes >= DOWNLOAD_PROGRESS_BYTES
@@ -565,6 +592,8 @@ def download_file(url: str, output: Path) -> dict[str, object]:
                     )
                     last_progress_at = now
                     last_progress_bytes = downloaded
+        if monotonic() - started > max_seconds:
+            raise RuntimeError("Archive download exceeded time limit")
         actual_size = output.stat().st_size
         if expected_size is not None and expected_size != actual_size:
             raise RuntimeError(
@@ -806,9 +835,9 @@ def main() -> None:
         lion_metadata = _remote_metadata(LION_METADATA_URL)
         pad_metadata = _remote_metadata(PAD_METADATA_URL)
         with zipfile.ZipFile(lion_zip) as archive:
-            lion_release = source_release_identifier(archive.namelist(), "lion")
+            lion_release = source_release_identifier([m.filename for m in validate_zip(archive)], "lion")
         with zipfile.ZipFile(pad_zip) as archive:
-            pad_release = source_release_identifier(archive.namelist(), "pad")
+            pad_release = source_release_identifier([m.filename for m in validate_zip(archive)], "pad")
         lion_catalog_release = metadata_release_identifier(lion_metadata)
         pad_catalog_release = metadata_release_identifier(pad_metadata)
         addresspoint_before = _remote_metadata(ADDRESSPOINT_METADATA_URL)
@@ -871,7 +900,7 @@ def main() -> None:
                 "Shadow source metadata changed during freshness probe; full refresh required"
             )
         extracted = staging / "lion-extracted"
-        shutil.unpack_archive(lion_zip, extracted)
+        extract_source_zip(lion_zip, extracted)
         geodatabases = sorted(extracted.rglob("*.gdb"))
         if len(geodatabases) != 1:
             raise RuntimeError(

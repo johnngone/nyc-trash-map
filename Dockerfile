@@ -1,7 +1,7 @@
 ARG APP_VERSION=development
 
 # Build the React frontend.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-build
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -14,25 +14,35 @@ ENV VITE_BASEMAP_TILEJSON_URL=$VITE_BASEMAP_TILEJSON_URL
 RUN npm run build
 
 # Run FastAPI and serve the compiled frontend from the same container.
-FROM python:3.11-slim
+FROM python:3.11.17-slim-trixie@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
 WORKDIR /app
 ARG APP_VERSION
 LABEL org.opencontainers.image.source="https://github.com/johnngone/nyc-trash-map"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.version=$APP_VERSION
-COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md ./
+COPY pyproject.toml requirements.txt build-constraints.txt README.md LICENSE THIRD_PARTY_NOTICES.md ./
 COPY backend/app ./backend/app
 COPY scripts ./scripts
 COPY --from=frontend-build /app/frontend/dist ./frontend-dist
-RUN pip install --no-cache-dir ".[refresh]" \
-    && chmod +x /app/scripts/container_entrypoint.sh
-RUN mkdir -p /app/data
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip install --no-cache-dir --upgrade pip==26.2.2 setuptools==84.1.0 wheel==0.46.3 \
+    && python -m pip install --no-cache-dir --require-hashes -r requirements.txt \
+    && python -m pip install --no-cache-dir --no-deps --build-constraint build-constraints.txt . \
+    && chmod +x /app/scripts/container_entrypoint.sh \
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --no-create-home --home-dir /app/data app \
+    && mkdir -p /app/data \
+    && chown app:app /app/data
 
 ENV DATA_MANIFEST_PATH=/app/data/data_manifest.json
 ENV DATA_REFRESH_ENABLED=true
 ENV DATA_REFRESH_INTERVAL_DAYS=14
 ENV DATA_REFRESH_ON_STARTUP=true
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+USER 10001:10001
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/live')"]

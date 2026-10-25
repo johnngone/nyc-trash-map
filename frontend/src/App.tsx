@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import type { Map as MapLibreMap } from "maplibre-gl";
 
 import { resolveApiUrl } from "./apiUrl";
 import { createBasemapStyle, DEFAULT_BASEMAP_TILEJSON_URL } from "./basemap";

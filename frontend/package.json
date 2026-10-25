@@ -1,7 +1,7 @@
 {
   "name": "nyc-trash-map-frontend",
   "private": true,
-  "version": "3.0.2",
+  "version": "1.0.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -10,18 +10,18 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "maplibre-gl": "^5.6.0",
+    "maplibre-gl": "6.15.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@maplibre/maplibre-gl-style-spec": "^24.10.0",
+    "@maplibre/maplibre-gl-style-spec": "26.4.4",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.6.0",
     "typescript": "^5.8.3",
-    "vite": "^7.0.0",
-    "vitest": "^3.2.4"
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
