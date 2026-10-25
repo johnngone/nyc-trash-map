@@ -29,12 +29,17 @@ def test_health_summary_is_single_flight_and_invalidates_with_artifact(tmp_path,
     api._cached_health_summary.cache_clear()
     api._require_verified_current_release(read_current_release(pointer))
 
-    reads = []
+    aggregates = []
     original = api._read_only_database
+    def trace(statement):
+        if "COUNT(*)" in statement.upper():
+            aggregates.append(statement)
+            time.sleep(0.02)
+
     def counted(path):
-        reads.append(path)
-        time.sleep(0.02)
-        return original(path)
+        connection = original(path)
+        connection.set_trace_callback(trace)
+        return connection
     monkeypatch.setattr(api, "_read_only_database", counted)
     barrier = threading.Barrier(4)
     def probe(_):
@@ -44,22 +49,33 @@ def test_health_summary_is_single_flight_and_invalidates_with_artifact(tmp_path,
     with ThreadPoolExecutor(max_workers=4) as workers:
         responses = list(workers.map(probe, range(4)))
     assert all(response.status_code == 200 for response in responses)
-    assert len(reads) == 1
+    assert len(aggregates) == 3
 
     with TestClient(app) as client:
         record["verified_at"] = "2026-10-24T12:00:00+00:00"
         pointer.write_text(json.dumps(record))
         assert client.get("/api/health").json()["verified_at"] == record["verified_at"]
-        assert len(reads) == 1
+        assert len(aggregates) == 3
+
+        def unavailable(path):
+            raise sqlite3.OperationalError("unable to open database file")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(api, "_read_only_database", unavailable)
+            response = client.get("/api/health")
+            assert response.status_code == 503
+            assert response.json()["detail"] == "Committed database is invalid"
+        assert client.get("/api/health").status_code == 200
+        assert len(aggregates) == 3
 
         with sqlite3.connect(database) as connection:
             connection.execute("UPDATE block_face_collection_states SET source_policy_conflict = 1")
         # Cached summaries must never bypass the existing artifact integrity gate.
         assert client.get("/api/health").status_code == 503
-        assert len(reads) == 1
+        assert len(aggregates) == 3
         record["artifacts"]["database"]["sha256"] = hashlib.sha256(database.read_bytes()).hexdigest()
         pointer.write_text(json.dumps(record))
         response = client.get("/api/health")
         assert response.status_code == 200
         assert response.json()["policy_conflicts"] > 0
-        assert len(reads) == 2
+        assert len(aggregates) == 6

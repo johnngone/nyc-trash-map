@@ -223,12 +223,6 @@ def _cached_health_summary(
     # Immutable release identity invalidates the cache on replacement or rollback.
     del mtime_ns, size, expected_sha256
     with closing(_read_only_database(database_path)) as connection:
-        connection.execute("SELECT 1 FROM block_faces LIMIT 1").fetchone()
-        database_revision = connection.execute(
-            "SELECT value FROM dataset_metadata WHERE key = 'database_schema_revision'"
-        ).fetchone()
-        if database_revision is None or database_revision[0] != str(DATABASE_SCHEMA_REVISION):
-            raise HTTPException(status_code=503, detail="Database schema revision is invalid")
         schedule_state_counts: dict[str, dict[str, int]] = {}
         for collection_type, state, state_count in connection.execute(
             """SELECT collection_type, state, COUNT(*)
@@ -282,6 +276,13 @@ def health() -> dict[str, object]:
     try:
         database = Path(database_path).resolve()
         identity = database.stat()
+        with closing(_read_only_database(database)) as connection:
+            connection.execute("SELECT 1 FROM block_faces LIMIT 1").fetchone()
+            database_revision = connection.execute(
+                "SELECT value FROM dataset_metadata WHERE key = 'database_schema_revision'"
+            ).fetchone()
+            if database_revision is None or database_revision[0] != str(DATABASE_SCHEMA_REVISION):
+                raise HTTPException(status_code=503, detail="Database schema revision is invalid")
         # Serialize cache misses so concurrent probes cannot repeat full-table scans.
         with _health_summary_lock:
             schedule_state_counts, policy_conflicts, unresolved_counts = _cached_health_summary(
