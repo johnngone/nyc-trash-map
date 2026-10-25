@@ -140,7 +140,6 @@ Compose mounts `./data` at `/app/data`. The container's manifest pointer is fixe
 - [Map architecture](docs/operations.md#runtime-data-path) shows the path from source downloads to vector tiles in the browser.
 - [Backend architecture](docs/operations.md#runtime-data-path) covers the FastAPI service and its release data path.
 - [Frontend map design](docs/operations.md#vector-tile-contract) covers MapLibre viewport requests and browser caching.
-- [DSNY address lookup investigation](docs/dsny-lookup.md) documents the separate research utility. The production refresh does not call the address lookup page.
 
 ## API
 

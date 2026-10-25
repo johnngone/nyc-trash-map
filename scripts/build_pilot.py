@@ -279,22 +279,6 @@ def normalize_days(value: object) -> list[str]:
     return [day for day in DAY_ORDER if day in normalized]
 
 
-def side_offset_point(geometry: BaseGeometry, side: str, distance_feet: float) -> Point:
-    """Return the midpoint of a complete side-offset trace."""
-
-    trace = side_offset_trace(geometry, side, distance_feet)
-    line = _sample_line(trace)
-    return line.interpolate(line.length / 2)
-
-
-def side_offset_trace(geometry: BaseGeometry, side: str, distance_feet: float) -> BaseGeometry:
-    """Offset every line component to a block-face side in EPSG:2263."""
-
-    offset_pairs, _, _ = _side_offset_pairs(geometry, side, distance_feet)
-    offset_lines = [offset_line for _, offset_line in offset_pairs]
-    return offset_lines[0] if len(offset_lines) == 1 else MultiLineString(offset_lines)
-
-
 def _to_working_crs(frame: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Project only when necessary; return an equivalent working frame as-is."""
 
@@ -1835,26 +1819,6 @@ def _orient_geometry_for_display(
     raise ValueError(f"unsupported geometry type {geometry.geom_type}")
 
 
-def _candidate_conflict_values(
-    group: list[SideCandidate],
-    conflicts: list[str],
-) -> dict[str, object]:
-    values: dict[str, object] = {}
-    for field_name in conflicts:
-        if field_name == "schedules":
-            schedules = {
-                json.dumps(
-                    {kind: list(candidate.schedules[kind]) for kind in SCHEDULE_FIELDS},
-                    sort_keys=True,
-                )
-                for candidate in group
-            }
-            values[field_name] = [json.loads(schedule) for schedule in sorted(schedules)]
-        else:
-            values[field_name] = sorted({getattr(candidate, field_name) for candidate in group})
-    return values
-
-
 def _build_audit(
     *,
     source_rows: int,
@@ -2058,17 +2022,6 @@ def _line_error(geometry: BaseGeometry | None) -> str | None:
     if geometry.length <= 0:
         return "zero-length LION line geometry"
     return None
-
-
-def _sample_line(geometry: BaseGeometry) -> LineString:
-    error = _line_error(geometry)
-    if error:
-        raise ValueError(error)
-    if isinstance(geometry, LineString):
-        return geometry
-    if isinstance(geometry, MultiLineString):
-        return max(geometry.geoms, key=lambda line: line.length)
-    raise ValueError(f"unsupported geometry type {geometry.geom_type}")
 
 
 def _two_dimensional_line(line: LineString) -> LineString:

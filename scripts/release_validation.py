@@ -22,7 +22,7 @@ from pathlib import Path
 import mapbox_vector_tile
 from pyproj import Transformer
 from shapely import force_2d, wkt
-from shapely.geometry import GeometryCollection, LineString, MultiLineString, box, shape
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, box
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform
 
@@ -32,9 +32,7 @@ from scripts.load_processed import (
     PreparedPayload,
     ValidatedFeature,
     ValidatedUnknownFeature,
-    prepare_features,
     prepare_payload,
-    prepare_unknown_features,
 )
 
 
@@ -1492,17 +1490,6 @@ def validate_processed_database_semantics(
     }
 
 
-def _processed_feature_hashes(payload: dict[str, object]) -> dict[str, str]:
-    # Importing the loader's input validator ensures the expected side uses the
-    # exact documented aggregation/normalization contract.  The actual side
-    # below is reconstructed independently from normalized relational rows.
-    try:
-        features = prepare_features(payload)
-    except ValueError as error:
-        raise RuntimeError(f"processed GeoJSON semantic validation failed: {error}") from error
-    return _prepared_feature_hashes(features)
-
-
 def _prepared_feature_hashes(
     features: tuple[ValidatedFeature, ...] | list[ValidatedFeature],
 ) -> dict[str, str]:
@@ -1531,14 +1518,6 @@ def _prepared_feature_hashes(
         feature_id: _canonical_record_sha256(record)
         for feature_id, record in records.items()
     }
-
-
-def _processed_unknown_feature_hashes(payload: dict[str, object]) -> dict[str, str]:
-    try:
-        features = prepare_unknown_features(payload)
-    except ValueError as error:
-        raise RuntimeError(f"processed unknown semantic validation failed: {error}") from error
-    return _prepared_unknown_feature_hashes(features)
 
 
 def _prepared_unknown_feature_hashes(

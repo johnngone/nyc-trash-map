@@ -26,6 +26,7 @@ from backend.app.main import app
 from scripts.run_refresh import PROCESSING_CODE_PATHS
 from scripts.build_tiles import build_tiles
 
+assert callable(app)
 for relative in PROCESSING_CODE_PATHS:
     assert (root / relative).is_file(), relative
 assert callable(build_tiles)

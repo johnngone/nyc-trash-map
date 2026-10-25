@@ -27,7 +27,6 @@ from scripts.release_validation import (
 
 DEFAULT_VERSION = "ci-smoke-v4"
 DATA_UPDATED = "2026-08-19T12:00:00+00:00"
-WEST, SOUTH, EAST, NORTH = -73.99, 40.70, -73.98, 40.71
 
 
 def _build_database(path: Path, version: str) -> None:
