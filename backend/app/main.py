@@ -146,7 +146,7 @@ class FrontendStaticFiles(StaticFiles):
 
 app = FastAPI(
     title="NYC Trash Map API",
-    version="1.0.1",
+    version="1.0.2",
     license_info={"name": "MIT License", "identifier": "MIT"},
     docs_url=None if IS_PRODUCTION else "/docs",
     redoc_url=None if IS_PRODUCTION else "/redoc",
