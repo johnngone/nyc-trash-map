@@ -50,6 +50,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          # Refresh Debian security updates even when application sources are unchanged.
+          no-cache: true
           load: true
           push: false
           tags: nyc-trash-map:ci
@@ -103,6 +105,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          # Refresh Debian security updates even when application sources are unchanged.
+          no-cache: true
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.release-tags.outputs.tags }}
