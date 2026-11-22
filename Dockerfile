@@ -14,7 +14,7 @@ ENV VITE_BASEMAP_TILEJSON_URL=$VITE_BASEMAP_TILEJSON_URL
 RUN npm run build
 
 # Run FastAPI and serve the compiled frontend from the same container.
-FROM python:3.11.17-slim-trixie@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
+FROM python:3.15.2-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 WORKDIR /app
 ARG APP_VERSION
 LABEL org.opencontainers.image.source="https://github.com/johnngone/nyc-trash-map"
